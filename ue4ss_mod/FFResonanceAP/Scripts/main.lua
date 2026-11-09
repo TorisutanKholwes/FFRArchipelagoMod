@@ -23,7 +23,7 @@
 ]]
 
 local MOD_NAME = "FFResonanceAP"
-local MOD_VERSION = "0.12.0"
+local MOD_VERSION = "0.13.0"
 
 -- Resolve this mod's folder from the script path and make our modules require()-able.
 local function resolve_mod_dir()
@@ -49,6 +49,7 @@ local runtime = require("ap.runtime")
 local gatingprobe = require("game.gatingprobe")
 local uidump = require("game.uidump")
 local apmenu = require("ui.apmenu")
+local overlay = require("ui.overlay")
 local zoneprobe = require("game.zoneprobe")
 local zonegate = require("game.zonegate")
 local shopprobe = require("game.shopprobe")
@@ -128,6 +129,7 @@ local research_cfg = fs.read_all(fs.join(MOD_DIR, "config", "research.txt"))
 local research_enabled = research_cfg ~= nil and research_cfg:match("^%s*on") ~= nil
 uidump.enabled = research_enabled  -- title-screen UI dumps freeze the game for 1-3 s: research only
 log.info("Research scans: %s", research_enabled and "on" or "off")
+overlay.init(MOD_DIR, runtime)
 
 -- World/game-state transitions (title screen -> field, map changes).
 local ok_hook, hook_err = pcall(RegisterInitGameStatePostHook, function(game_state)
@@ -139,6 +141,7 @@ local ok_hook, hook_err = pcall(RegisterInitGameStatePostHook, function(game_sta
     runtime.on_game_state(class, name)
     uidump.on_game_state(name)
     apmenu.on_game_state(name)
+    overlay.on_game_state(name)
     zoneprobe.on_game_state(class, name)
     zonegate.on_game_state(class, name)
     shopprobe.on_game_state(class)
@@ -168,6 +171,7 @@ if not ok_hook then log.warn("RegisterInitGameStatePostHook unavailable: %s", to
 savewatch.start(1000)
 runtime.start(1000)
 apmenu.start()
+overlay.start()
 zoneprobe.register_hooks()
 zoneprobe.start()
 zonegate.start()

@@ -37,6 +37,8 @@ local battle = require("game.battle")
 local ipc = require("ap.ipc")
 local notify = require("ap.notify")
 local gamestate = require("game.gamestate")
+local Messages = require("ap.messages")
+local shops = require("ap.shops")
 
 local runtime = {
     session = nil,
@@ -49,6 +51,9 @@ local runtime = {
     last_write = 0,
     last_rebuild = 0,
     seen_messages = 0,
+    messages = Messages.new(), -- in-game messages: popups + pause-menu history (TD-035)
+    messages_saved = 0,        -- messages.version last persisted
+    messages_saved_at = 0,
     delivery_error = nil,
     mod_version = "?",
     deathlink = DeathLink.new(),
@@ -234,6 +239,35 @@ local function delivery_allowed()
     return idle
 end
 
+--- In-game message for an applied item (TD-035). Names come from the bridge (data package).
+function runtime.message_for_item(index, it)
+    local m = mappings.items[it.item]
+    if not m then return end
+    local own_slot = runtime.bridge and runtime.bridge.slot
+    local loc = tonumber(it.location) or -1
+    local info = {
+        name = it.item_name or ("Item " .. tostring(it.item)),
+        sender = it.sender or ("Player " .. tostring(it.player)),
+        location = it.location_name,
+        own = own_slot ~= nil and it.player == own_slot and loc >= 0,
+        method = m.method,
+        amount = m.amount,
+        chain = m.chain,
+        zone_name = m.zone and (mappings.zone_names[m.zone] or tostring(m.zone)),
+    }
+    if m.method == "shop_tier" then
+        local upto = {}
+        for i = 1, index do upto[i] = runtime.bridge.items[i] end
+        local n = shops.counts(upto, mappings)[m.chain] or 0
+        local tier = mappings.shop_tiers[m.chain] and mappings.shop_tiers[m.chain][n]
+        if tier then info.tier, info.chapter = n, tier.chapter end
+    end
+    -- Starting inventory (location -2, e.g. the chapter-1 zones): listed, no popup.
+    local quiet = it.player == 0 and loc == -2
+    runtime.messages:add(Messages.item_kind(m.method), Messages.item_text(info), "item:" .. index,
+        { item_index = index, history_only = quiet })
+end
+
 local function deliver_items()
     local s = runtime.session
     if not (s:is_bound() and s.loaded and runtime.in_field and runtime.bridge) then return end
@@ -248,6 +282,8 @@ local function deliver_items()
             runtime.dirty = true
             log.info("ITEM %d applied: ap_item=%s from player %s (location %s)",
                 p.index, tostring(p.item.item), tostring(p.item.player), tostring(p.item.location))
+            local mok, merr = pcall(runtime.message_for_item, p.index, p.item)
+            if not mok then log.error("Message for item #%d failed: %s", p.index, tostring(merr)) end
         else
             runtime.delivery_error = string.format("item #%d (%s): %s", p.index, tostring(p.item.item),
                 tostring(ok and reason or res))
@@ -316,6 +352,7 @@ local function rebuild_checks()
         end
         if mp >= mappings.goal.min_progress and runtime.session:set_goal() then
             log.info("GOAL reached: story progress %d >= %d", mp, mappings.goal.min_progress)
+            runtime.messages:add("goal", "Goal complete!", "goal")
             runtime.dirty = true
         end
     end
@@ -445,6 +482,7 @@ local function read_bridge()
     if st.seed_name and st.slot_name then
         if runtime.session:bind(st.seed_name, st.slot_name) then
             log.info("Bound to seed %s, slot %s", st.seed_name, st.slot_name)
+            runtime.load_messages()
             fs.write_atomic(fs.join(runtime.state_dir, "current.json"),
                 json.encode({ seed_name = st.seed_name, slot_name = st.slot_name }))
             -- A binding made while already in game: treat the current save as loaded.
@@ -463,16 +501,59 @@ local function read_bridge()
     end
     for _, d in ipairs(new_deaths) do
         log.info("DEATHLINK received #%s from %s: %s", tostring(d.id), tostring(d.source), tostring(d.cause))
+        runtime.messages:add("death", Messages.death_received_text(d.source, d.cause),
+            string.format("death:%s:%s", tostring(st.death_link and st.death_link.session), tostring(d.id)))
         if runtime.deathlink_broken then
             runtime.deathlink:drop_pending()
             log.warn("DeathLink death ignored: the party cannot be killed (%s)", runtime.deathlink_broken)
         end
+    end
+    -- Log messages: ids restart with every bridge connection ("epoch" changes with them).
+    if st.epoch ~= runtime.seen_epoch then
+        runtime.seen_epoch = st.epoch
+        runtime.seen_messages = 0
     end
     for _, m in ipairs(st.messages or {}) do
         if (m.id or 0) > runtime.seen_messages then
             runtime.seen_messages = m.id
             log.info("AP: %s", tostring(m.text))
         end
+    end
+    -- Hints and chat for the in-game messages; the history keys make a re-read harmless.
+    if runtime.session:is_bound() then
+        for _, e in ipairs(st.events or {}) do
+            if type(e) == "table" and (e.kind == "hint" or e.kind == "chat") then
+                runtime.messages:add(e.kind, tostring(e.text), string.format("ev:%s:%s", tostring(st.epoch), tostring(e.id)))
+            end
+        end
+    end
+end
+
+-- Message history persistence (state/<seed>__<slot>.messages.json) ----------
+
+function runtime.load_messages()
+    runtime.messages = Messages.new()
+    local ok, t = pcall(runtime.session.store.load, runtime.session.key .. ".messages")
+    if not ok then
+        log.warn("Message history unreadable (%s); starting a new one", tostring(t))
+    elseif t then
+        runtime.messages:load_table(t)
+        log.info("Message history: %d entr%s restored", #runtime.messages.history,
+            #runtime.messages.history == 1 and "y" or "ies")
+    end
+    runtime.messages_saved = runtime.messages.version
+end
+
+local function save_messages()
+    local m = runtime.messages
+    if not runtime.session:is_bound() or m.version == runtime.messages_saved then return end
+    if os.time() - runtime.messages_saved_at < 2 then return end
+    local ok, err = pcall(runtime.session.store.save, runtime.session.key .. ".messages", m:to_table())
+    runtime.messages_saved_at = os.time()
+    if ok then
+        runtime.messages_saved = m.version
+    else
+        log.error("Cannot save the message history: %s", tostring(err))
     end
 end
 
@@ -586,6 +667,10 @@ local function on_game_over()
     if runtime.deathlink:on_game_over(os.time()) then
         log.info("GAME OVER #%d%s", runtime.deathlink.count,
             runtime.deathlink.enabled and " (DeathLink: sending)" or "")
+        if runtime.deathlink.enabled then
+            runtime.messages:add("death", "You died: DeathLink sent",
+                string.format("deathsent:%s:%d", tostring(runtime.game_session), runtime.deathlink.count))
+        end
     else
         log.info("GAME OVER caused by a received DeathLink: not sent back")
     end
@@ -618,6 +703,7 @@ local function tick()
         rebuild_checks()
     end
     write_game_state()
+    save_messages()
 end
 
 function runtime.init(mod_dir, mod_version, savewatch)
