@@ -23,6 +23,8 @@
 | `only N of M added ... inventory full` | You already hold the maximum of that item. The excess is lost, as with a normal pickup. |
 | A chest gave its normal reward | Either it isn't randomized (key items and artifacts), or it was opened before the mod was linked to a seed. Its check is still sent. |
 | Chests show "0 Gil" when playing without Archipelago | Only possible after pressing Connect in this game launch. Restart the game and don't press Connect. |
+| No Archipelago popups or system-menu list | Look for `OVERLAY` lines in the mod log. `OVERLAY disabled for this session (...)` gives the reason; please report it. The overlay only shows after Connect, in game (not on the title screen), and `config/overlay.txt` must not say `off`. |
+| A received item showed no popup | Items replayed after loading an older save, and items already listed, are not shown again (they're still applied). Items arrive when you're in control in the field, so their popups appear then. |
 | Goal not reported | Goal detection uses main story progress ≥ 9000, a value taken from the game's own data that hasn't been confirmed on a real clear yet. Please report the mod log line `Main story progress:` after the credits. |
 
 When reporting a problem, include `logs/ffr_ap.log`, the bridge output and `ue4ss/UE4SS.log`. None of them contain passwords.

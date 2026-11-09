@@ -60,6 +60,7 @@ python -m ffr_bridge --slot YourName --server archipelago.gg:12345 [--password P
 | File | Purpose |
 |---|---|
 | `config/notifications.txt` | `off` disables the "You obtained the following" window for received items. The default is on. |
+| `config/overlay.txt` | `off` disables the in-game Archipelago messages (top-right popups and the list in the system menu). `dump` also logs the widgets shown in the game's system stacks (layout research). The default is on. |
 | `config/watch_classes.txt` | Research only: the classes captured by Ctrl+F8 snapshots. |
 | `config/connection.json` | Server, port and slot from the Archipelago Options panel (never the password). |
 | `config/shop_research.txt` | `on` runs the shop-write research test (adds chapter-5 items to every chapter-1 shop for that launch). Research only; off by default. |
@@ -67,6 +68,7 @@ python -m ffr_bridge --slot YourName --server archipelago.gg:12345 [--password P
 | `config/research.txt` | `on` enables research scans and title-screen UI dumps (slow: they freeze the game for 1–3 s). Off by default. |
 | `state/current.json` | The seed the mod was last linked to (information only: the link is not restored at startup). |
 | `state/<seed>__<slot>.json` (+ `.bak`) | Per-seed progress: applied items per save, checks, goal. **Don't edit.** |
+| `state/<seed>__<slot>.messages.json` (+ `.bak`) | Message history for the system-menu list (last 100). Deleting it only empties the list. |
 
 ## Starting a run
 - Start a **new game**, or use a save that has never been used with another seed. A save the mod doesn't know counts as having received nothing, so all received items are applied to it.

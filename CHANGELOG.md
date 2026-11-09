@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.0 (world 0.8.0, data version `2717a1b6300c52c7`, unchanged: 0.12.0 seeds work)
+- **In-game Archipelago messages:**
+  - **Popups at the top right:** received items (with the sender), Gil, zone unlocks, progressive shop tiers, DeathLink, goal, hints about your items or your world, and chat. Up to 4 lines stacked, newest on top; each shows for 5 s and fades out. Extra messages wait their turn.
+  - **"Archipelago - recent" list on the left of the system menu (Esc):** the latest messages, as many as fit on screen, with the time.
+  - **History saved per seed** (`state/<seed>__<slot>.messages.json`, last 100). A save reload that replays items, or a game restart, doesn't show them again. The starting zones go to the list without a popup.
+  - Turn it off with `config/overlay.txt` = `off`.
+  - The game's own "You obtained the following" window for items is unchanged.
+- **Bridge (0.11.0):**
+  - Requests the data package of every game in the room, so items and locations from other games have real names.
+  - `bridge_state.json` gains `players`, `events` (hints and chat, compact hint text), `epoch`, and names on each received item (`item_name`, `sender`, `location_name`).
+  - Log-message ids restarted with every connection, so after the first connection the mod no longer logged server messages; `epoch` fixes this.
+- **Dev:** shared UMG helpers moved to `ui/widgets.lua`, so the title panel and the overlay share the same code.
+
 ## 0.12.0 (world 0.8.0, data version `2717a1b6300c52c7`: seeds from 0.11.0 are refused)
 - **Progressive shops** (YAML options `progressive_shops`, on by default, and `progressive_shop_prices`: `full` / `half` (default) / `quarter`):
   - Progressive Weapon Shop ×7, Progressive Armor Shop ×7, Progressive Accessory Shop ×6 (useful items, in place of filler).
