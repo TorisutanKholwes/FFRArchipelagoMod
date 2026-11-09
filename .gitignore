@@ -1,0 +1,10 @@
+.cache/
+__pycache__/
+*.pyc
+.venv/
+# runtime output copied back from the game for analysis
+research_dumps/
+dist/
+# Python build / test artifacts
+*.egg-info/
+.pytest_cache/
