@@ -306,7 +306,9 @@ class BridgeClient:
             log.info("Room info: seed %s, AP %s", packet.get("seed_name"), packet.get("version"))
             if packet.get("password") and not self.password and self.password_prompt:
                 self.password = self.password_prompt()
-            await self._send([protocol.get_data_package([protocol.GAME])])
+            # Every game of the room, so items and locations of other worlds get real names in game.
+            games = sorted(set(packet.get("games") or []) | {protocol.GAME})
+            await self._send([protocol.get_data_package(games)])
             await self._send([protocol.connect(core.slot_name, self.uuid, self.password)])
         elif cmd == "DataPackage":
             self.names.load_data_package(packet)
@@ -340,9 +342,8 @@ class BridgeClient:
         elif cmd == "RoomUpdate":
             core.on_room_update(packet)
         elif cmd == "PrintJSON":
-            text = protocol.render_print_json(packet, self.names)
+            text = core.on_print_json(packet, self.names)
             if text:
-                core.add_message(text)
                 log.info("[server] %s", text)
         elif cmd == "InvalidPacket":
             log.error("Server rejected a packet: %s", packet)
@@ -352,7 +353,7 @@ class BridgeClient:
 
     def _write_state(self) -> None:
         try:
-            self.ipc.write_bridge_state(self.core.bridge_state())
+            self.ipc.write_bridge_state(self.core.bridge_state(self.names))
             self._state_dirty = False
         except OSError as e:
             log.error("Cannot write bridge state: %s", e)

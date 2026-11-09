@@ -197,6 +197,21 @@ def test_end_to_end(seed, tmp_path):
             n_items = len(bridge_state()["items"])
             assert all(i["player"] in (0, 1, 2) for i in bridge_state()["items"])
             assert sum(1 for i in bridge_state()["items"] if i["player"] == 0) == 8
+            # names for the mod's in-game messages
+            named = [i for i in bridge_state()["items"] if i["player"] == 2]
+            assert all(i["sender"] == "Other" and not i["item_name"].startswith("Item ")
+                       and not i["location_name"].startswith("Location ") for i in named)
+            assert all(i["sender"] == "Archipelago" for i in bridge_state()["items"] if i["player"] == 0)
+
+            # hint about one of our items + server chat -> events; nothing else becomes an event
+            server.command("/hint FFRPlayer Progressive Weapon Shop")
+            server.command("hello from the host")
+            await wait_until(lambda: {e["kind"] for e in bridge_state().get("events", [])} >= {"hint", "chat"}, 15,
+                             "hint and chat events")
+            evs = bridge_state()["events"]
+            assert all(e["kind"] in ("hint", "chat") for e in evs)
+            assert any("Progressive Weapon Shop" in e["text"] for e in evs if e["kind"] == "hint")
+            assert any("hello from the host" in e["text"] for e in evs if e["kind"] == "chat")
 
             # 5. socket drop -> reconnect -> nothing lost
             await client.socket.close()

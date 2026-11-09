@@ -117,7 +117,9 @@ def test_bridge_state_snapshot():
     st = core.bridge_state()
     assert st["protocol"] == PROTOCOL and st["status"] == Status.READY
     assert st["seed_name"] == "S1" and st["slot_name"] == "P1" and st["slot"] == 1
-    assert st["items"] == [{"item": 77000011, "location": 1, "player": 2, "flags": 0}]
+    assert st["items"] == [{"item": 77000011, "location": 1, "player": 2, "flags": 0,
+                            "item_name": "Item 77000011", "sender": "Player 2", "location_name": "Location 1"}]
+    assert st["events"] == [] and isinstance(st["epoch"], int)
     assert st["messages"] == [{"id": 1, "text": "hello"}]
     assert st["slot_data"] == {"goal": 0}
 
@@ -262,3 +264,81 @@ def test_received_deaths_capped_with_increasing_ids():
     for i in range(30):
         core.on_bounced({"cmd": "Bounced", "tags": ["DeathLink"], "data": {"time": 100.0 + i, "source": "P2"}})
     assert len(core.deaths_in) == 20 and core.deaths_in[-1]["id"] == 30
+
+
+# --- In-game message events -----------------------------------------------------------
+
+def two_game_names():
+    names = protocol.NameLookup()
+    names.load_connected({"players": [{"slot": 1, "alias": "Alice"}, {"slot": 2, "name": "Bob"}],
+                          "slot_info": {"1": {"game": "Final Fantasy Resonance"}, "2": {"game": "APQuest"}}})
+    names.load_data_package({"data": {"games": {
+        "Final Fantasy Resonance": {"item_name_to_id": {"Potion x3": 77000013}, "location_name_to_id": {"Chest": 80201503}},
+        "APQuest": {"item_name_to_id": {"Sword": 1}, "location_name_to_id": {"Tree": 42}}}}})
+    return names
+
+
+def hint(receiving, finder):
+    return {"cmd": "PrintJSON", "type": "Hint", "receiving": receiving,
+            "item": {"item": 77000013 if receiving == 1 else 1, "location": 42 if finder == 2 else 80201503,
+                     "player": finder, "flags": 1},
+            "data": [{"text": "[Hint]: something"}]}
+
+
+def test_print_json_classification():
+    assert protocol.classify_print_json(hint(1, 2), 1) == "hint"      # an item we receive
+    assert protocol.classify_print_json(hint(2, 1), 1) == "hint"      # an item in our world
+    assert protocol.classify_print_json(hint(2, 3), 1) is None        # other players only
+    assert protocol.classify_print_json(hint(1, 2), None) is None     # not authenticated
+    assert protocol.classify_print_json({"type": "Chat", "data": []}, 1) == "chat"
+    assert protocol.classify_print_json({"type": "ServerChat", "data": []}, 1) == "chat"
+    for other in ("ItemSend", "Join", "Part", "Tutorial", "CommandResult", None):
+        assert protocol.classify_print_json({"type": other, "data": []}, 1) is None
+
+
+def test_print_json_events_and_log_messages():
+    core = connected_core()
+    names = two_game_names()
+    core.on_print_json(hint(1, 2), names)
+    core.on_print_json({"cmd": "PrintJSON", "type": "ItemSend", "data": [{"text": "Bob found Sword"}]}, names)
+    core.on_print_json({"cmd": "PrintJSON", "type": "Chat", "data": [{"text": "Bob: hi"}]}, names)
+    assert [m["text"] for m in core.messages] == ["[Hint]: something", "Bob found Sword", "Bob: hi"]
+    assert core.events == [{"id": 1, "kind": "hint", "text": "Hint: your Potion x3 is at Tree (Bob's world)"},
+                           {"id": 2, "kind": "chat", "text": "Bob: hi"}]
+    st = core.bridge_state(names)
+    assert st["events"] == core.events and st["epoch"] == core.epoch
+
+
+def test_events_capped_and_epoch_differs_per_core():
+    core = BridgeCore(slot_name="P1")
+    for i in range(130):
+        core.add_event("chat", str(i))
+    assert len(core.events) == 100 and core.events[0]["id"] == 31 and core.events[-1]["id"] == 130
+    assert BridgeCore(slot_name="P1").epoch != core.epoch
+
+
+def test_received_items_carry_names():
+    core = connected_core()
+    names = two_game_names()
+    core.on_received_items({"cmd": "ReceivedItems", "index": 0, "items": [
+        {"item": 77000013, "location": 42, "player": 2, "flags": 0},          # found by Bob in APQuest
+        {"item": 77000013, "location": 80201503, "player": 1, "flags": 0},    # found in our own world
+        {"item": 77000013, "location": -2, "player": 0, "flags": 0},          # /send from the server
+        {"item": 99, "location": 7, "player": 9, "flags": 0}]})               # unknown everything
+    st = core.bridge_state(names)
+    got = [(i["item_name"], i["sender"], i["location_name"]) for i in st["items"]]
+    assert got == [("Potion x3", "Bob", "Tree"), ("Potion x3", "Alice", "Chest"), ("Potion x3", "Archipelago", ""),
+                   ("Item 99", "Player 9", "Location 7")]
+    assert st["items"][0]["item"] == 77000013 and st["players"] == {"1": "Alice", "2": "Bob"}
+    assert core.received[0] == {"item": 77000013, "location": 42, "player": 2, "flags": 0}  # raw list unchanged
+
+
+def test_compact_hint_texts():
+    names = two_game_names()
+    names.items["Final Fantasy Resonance"][77000013] = "Potion x3"
+    assert protocol.compact_hint(hint(1, 2), 1, names) == "Hint: your Potion x3 is at Tree (Bob's world)"
+    own = {"receiving": 1, "item": {"item": 77000013, "location": 80201503, "player": 1}, "found": True}
+    assert protocol.compact_hint(own, 1, names) == "Hint: your Potion x3 is at Chest (found)"
+    theirs = {"receiving": 2, "item": {"item": 1, "location": 80201503, "player": 1}}
+    assert protocol.compact_hint(theirs, 1, names) == "Hint: Chest has Bob's Sword"
+    assert protocol.compact_hint({"receiving": 1}, 1, names) is None

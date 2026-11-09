@@ -35,6 +35,7 @@ You can start the bridge before or after the game, and you can stop and restart 
 
 ## How it works
 - **Server to game:** the full, server-ordered list of received items goes into `ipc/bridge_state.json`. The mod applies the items it hasn't applied yet.
+- **Names and messages:** each received item carries `item_name`, `sender` and `location_name` (data packages of every game in the room). `events` lists hints about our items or our world (compact text) and chat, with ids that restart with each connection: `epoch` changes with them. `messages` keeps every server message for the logs.
 - **Game to server:** the bridge reads `ipc/game_state.json`, which holds all chests the mod has detected as opened. It sends a `LocationChecks` packet for any the server doesn't know yet, and a `StatusUpdate` (goal) once the mod reports the goal.
 - **Connection states:** `connecting`, `connected`, `ready`, then `reconnecting` (exponential backoff from 2 s up to 60 s) when the connection drops. The state becomes `error` (no retry) when the server refuses the slot, for example because of a wrong slot name or password. With command-line settings the bridge then exits; with settings from the game it waits for new ones. `waiting_for_settings` means no settings yet, or the game was closed.
 

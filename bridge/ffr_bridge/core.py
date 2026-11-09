@@ -11,6 +11,7 @@ listed in bridge_state "death_link" with ids that restart with every bridge run 
 """
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -19,6 +20,7 @@ from . import protocol
 
 PROTOCOL = 1
 MAX_MESSAGES = 50
+MAX_EVENTS = 100
 MAX_DEATHS = 20
 DEATH_SEND_MAX_AGE = 120  # seconds: an older game over (e.g. while offline) is not sent any more
 
@@ -50,6 +52,11 @@ class BridgeCore:
     goal_sent: bool = False
     messages: list[dict[str, Any]] = field(default_factory=list)
     message_counter: int = 0
+    # In-game message events (hint, chat). Ids restart with every BridgeCore; "epoch" changes with
+    # them, so the mod knows a lower id is a new event, not an old one.
+    epoch: int = field(default_factory=lambda: random.getrandbits(48))
+    events: list[dict[str, Any]] = field(default_factory=list)
+    event_counter: int = 0
     # DeathLink
     death_link_override: bool | None = None   # --death-link on/off; None follows slot_data
     death_session: int = field(default_factory=lambda: int(time.time() * 1000))
@@ -192,9 +199,41 @@ class BridgeCore:
         self.messages.append({"id": self.message_counter, "text": text})
         del self.messages[:-MAX_MESSAGES]
 
+    def add_event(self, kind: str, text: str) -> None:
+        """An event shown in game (hint, chat)."""
+        self.event_counter += 1
+        self.events.append({"id": self.event_counter, "kind": kind, "text": text})
+        del self.events[:-MAX_EVENTS]
+
+    def on_print_json(self, packet: dict[str, Any], names: protocol.NameLookup) -> str:
+        """Log text of a PrintJSON packet; hints about our items and chat also become events."""
+        text = protocol.render_print_json(packet, names)
+        if text:
+            self.add_message(text)
+            kind = protocol.classify_print_json(packet, self.slot)
+            if kind == "hint":
+                self.add_event(kind, protocol.compact_hint(packet, self.slot, names) or text)
+            elif kind:
+                self.add_event(kind, text)
+        return text
+
     # --- IPC snapshot -------------------------------------------------------------
 
-    def bridge_state(self) -> dict[str, Any]:
+    def named_items(self, names: protocol.NameLookup) -> list[dict[str, Any]]:
+        """Received items with display names (the mod shows them; it has no data package)."""
+        own = self.slot or 0
+        out = []
+        for it in self.received:
+            sender = it["player"]
+            out.append({**it,
+                        "item_name": names.item(own, it["item"]),
+                        "sender": names.player(sender),
+                        # Location ids belong to the world of the player who found the item.
+                        "location_name": names.location(sender, it["location"]) if sender and it["location"] >= 0 else ""})
+        return out
+
+    def bridge_state(self, names: protocol.NameLookup | None = None) -> dict[str, Any]:
+        names = names or protocol.NameLookup()
         return {
             "protocol": PROTOCOL,
             "status": self.status,
@@ -204,9 +243,12 @@ class BridgeCore:
             "slot": self.slot,
             "team": self.team,
             "slot_data": self.slot_data if self.slot is not None else None,
-            "items": self.received,
+            "items": self.named_items(names),
+            "players": {str(k): v for k, v in names.players.items()},
             "server_checked": sorted(self.server_checked),
             "messages": self.messages,
+            "epoch": self.epoch,
+            "events": self.events,
             "death_link": {"enabled": self.death_link if self.slot is not None else False,
                            "session": self.death_session, "deaths": self.deaths_in},
             "request_seq": self.request_seq,

@@ -89,6 +89,51 @@ def render_print_json(packet: dict[str, Any], names: "NameLookup") -> str:
     return "".join(out)
 
 
+def classify_print_json(packet: dict[str, Any], me: int | None) -> str | None:
+    """Event kind of a PrintJSON packet for the in-game messages, or None if the game ignores it.
+
+    hint: a hint about an item we receive or an item found in our world;
+    chat: player chat and server chat. Everything else (item sends between other players, joins,
+    parts, tutorial, command results) is only logged by the bridge; received items are shown by the
+    mod from ReceivedItems.
+    """
+    ptype = packet.get("type")
+    if ptype == "Hint":
+        if me is None:
+            return None
+        item = packet.get("item") or {}
+        if packet.get("receiving") == me or item.get("player") == me:
+            return "hint"
+        return None
+    if ptype in ("Chat", "ServerChat"):
+        return "chat"
+    return None
+
+
+def compact_hint(packet: dict[str, Any], me: int, names: "NameLookup") -> str | None:
+    """Short in-game text of a Hint PrintJSON about our item or our world (None if malformed).
+
+    The server's own text ("[Hint]: X's Item is at Location in Y's World. (priority)") is too long
+    for a one-line popup once cut; the location, the useful part, comes last.
+    """
+    item = packet.get("item") or {}
+    try:
+        receiver, finder = int(packet["receiving"]), int(item["player"])
+        item_name = names.item(receiver, int(item["item"]))
+        location = names.location(finder, int(item["location"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if receiver == me:
+        text = f"Hint: your {item_name} is at {location}"
+        if finder != me:
+            text += f" ({names.player(finder)}'s world)"
+    else:
+        text = f"Hint: {location} has {names.player(receiver)}'s {item_name}"
+    if packet.get("found"):
+        text += " (found)"
+    return text
+
+
 class NameLookup:
     """Resolves player/item/location ids to names using Connected + DataPackage data."""
 
@@ -110,6 +155,8 @@ class NameLookup:
             self.locations[game] = {v: k for k, v in data.get("location_name_to_id", {}).items()}
 
     def player(self, slot: int) -> str:
+        if slot == 0 and 0 not in self.players:
+            return "Archipelago"  # the server itself: starting inventory, /send from the host console
         return self.players.get(slot, f"Player {slot}")
 
     def item(self, slot: int, item_id: int) -> str:
