@@ -46,19 +46,10 @@ local apmenu = {
     title_input_warned = false,
 }
 
-local C = {
-    Button = "/Script/UMG.Button",
-    TextBlock = "/Script/UMG.TextBlock",
-    EditableTextBox = "/Script/UMG.EditableTextBox",
-    VerticalBox = "/Script/UMG.VerticalBox",
-    HorizontalBox = "/Script/UMG.HorizontalBox",
-    Border = "/Script/UMG.Border",
-    SizeBox = "/Script/UMG.SizeBox",
-}
-
-local VIS = { Visible = 0, Collapsed = 1, Hidden = 2, HitTestInvisible = 3, SelfHitTestInvisible = 4 }
-local HALIGN = { Fill = 0, Left = 1, Center = 2, Right = 3 }
-local VALIGN = { Fill = 0, Top = 1, Center = 2, Bottom = 3 }
+local W = require("ui.widgets")
+local C, VIS, HALIGN, VALIGN = W.C, W.VIS, W.HALIGN, W.VALIGN
+local safe, valid, addr, cls_name, name_of = W.safe, W.valid, W.addr, W.cls_name, W.name_of
+local construct, slate_color, try, find_widget = W.construct, W.slate_color, W.try, W.find_widget
 
 local COLORS = {
     panel = { R = 0.02, G = 0.03, B = 0.08, A = 0.94 },
@@ -102,74 +93,7 @@ local IFACE = "/Script/EnhancedInput.EnhancedInputSubsystemInterface:"
 
 -- Helpers -----------------------------------------------------------------
 
-local function safe(fn, ...)
-    local ok, res = pcall(fn, ...)
-    if ok then return res end
-    return nil
-end
-
-local function valid(obj)
-    return obj ~= nil and safe(function() return obj:IsValid() end) == true
-end
-
-local function addr(obj)
-    return safe(function() return obj:GetAddress() end)
-end
-
-local function cls_name(obj)
-    return safe(function() return obj:GetClass():GetFName():ToString() end) or "?"
-end
-
-local function name_of(obj)
-    return safe(function() return obj:GetFName():ToString() end) or "?"
-end
-
-local function find_class(path)
-    local c = StaticFindObject(path)
-    if not valid(c) then error("class not found: " .. path) end
-    return c
-end
-
-local function construct(path, outer)
-    local obj = StaticConstructObject(find_class(path), outer)
-    if not valid(obj) then error("StaticConstructObject failed for " .. path) end
-    return obj
-end
-
 local refresh_connection_label  -- defined after the widget builders
-
-local function slate_color(c)
-    return { SpecifiedColor = c, ColorUseRule = 0 }
-end
-
---- Call obj:fname(...) and log a failure (never raises).
-local function try(obj, fname, ...)
-    local args = table.pack(...)
-    local ok, err = pcall(function() return obj[fname](obj, table.unpack(args, 1, args.n)) end)
-    if not ok then log.warn("UI: %s.%s failed: %s", name_of(obj), fname, tostring(err)) end
-    return ok
-end
-
---- Depth-first search of a widget tree by widget name (panels, content widgets, user widgets).
-local function find_widget(widget, wanted, depth)
-    depth = depth or 0
-    if not valid(widget) or depth > 30 then return nil end
-    if name_of(widget) == wanted then return widget end
-    local count = safe(function() return widget:GetChildrenCount() end)
-    if type(count) == "number" then
-        for i = 0, count - 1 do
-            local found = find_widget(safe(function() return widget:GetChildAt(i) end), wanted, depth + 1)
-            if found then return found end
-        end
-    else
-        local content = safe(function() return widget:GetContent() end)
-        if valid(content) then
-            local found = find_widget(content, wanted, depth + 1)
-            if found then return found end
-        end
-    end
-    return nil
-end
 
 --- A text widget of a title menu entry, used as the font source for our texts.
 local function font_source()
@@ -193,15 +117,7 @@ end
 -- Widget builders ---------------------------------------------------------
 
 local function make_text(outer, text, size, color)
-    local t = construct(C.TextBlock, outer)
-    if apmenu.font_src and valid(apmenu.font_src) then
-        local ok, err = pcall(function() t:SetFont(apmenu.font_src.Font) end)
-        if not ok then log.warn("UI: copying the game font failed: %s", tostring(err)) end
-    end
-    pcall(function() t.Font.Size = size end)
-    try(t, "SetText", FText(text))
-    try(t, "SetColorAndOpacity", slate_color(color or COLORS.white))
-    return t
+    return W.make_text(outer, text, size, color or COLORS.white, apmenu.font_src)
 end
 
 local function make_button(outer, label, size, action)
