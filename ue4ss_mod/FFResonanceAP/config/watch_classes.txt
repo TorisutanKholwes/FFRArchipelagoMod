@@ -1,0 +1,4 @@
+# Classes whose live instances are captured by the Ctrl+F8 snapshot.
+# One short class name per line (as shown in dumps/classes.json "name"). '#' starts a comment.
+# Fill this after running class discovery (Ctrl+F6). Take one snapshot before and one after
+# an in-game action (e.g. opening a chest), then diff them with tools/diff_snapshots.py.

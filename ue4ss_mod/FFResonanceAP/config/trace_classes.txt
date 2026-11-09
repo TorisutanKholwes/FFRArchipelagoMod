@@ -1,0 +1,12 @@
+# Research tracer (game/gatingprobe.lua). Each line is either
+#   a class path      -> every UFunction of the class (Tick/Update/Camera/Cursor/Delegate skipped)
+#   Class:Function    -> exactly that function
+# Remove all lines to disable.
+/Script/mucha.CPP_BFL_Map:GetMeetReleaseConditionIslandList
+/Script/mucha.CPP_BFL_Map:TransitionMap
+/Script/mucha.CPP_ItemSubsystem:UseTeleportStone
+/Script/mucha.CPP_MapUnit_AirShip
+/Script/mucha.CPP_MapUnit_Ship
+/Script/mucha.CPP_MapGimmick_AirShip
+/Script/mucha.CPP_MapGimmick_MerchantShip
+/Script/mucha.CPP_UI_WldMapSubsystem
